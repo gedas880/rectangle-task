@@ -174,7 +174,7 @@ const RectangleDrawer = () => {
 
     return (
         <div className="rectangle-drawer">
-            <h2>Rectangle Drawing Tool By Gediminas</h2>
+            <h2>Rectangle Drawing Tool</h2>
             <div className="controls">
                 <div className="input-group">
                     <label>Width:</label>

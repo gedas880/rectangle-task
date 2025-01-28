@@ -31,8 +31,8 @@ namespace backend.Services
             {
                 var defaultLimits = new Size
                 {
-                    Width = 1000,
-                    Height = 1000
+                    Width = 400,
+                    Height = 400
                 };
                 File.WriteAllText(_limitsPath, JsonSerializer.Serialize(defaultLimits));
             }

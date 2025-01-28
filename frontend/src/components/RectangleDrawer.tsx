@@ -1,5 +1,7 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './RectangleDrawer.css';
+
+const API_BASE_URL = 'http://localhost:5183/api/rectangle';
 
 const initialConfig = {
     width: 200,
@@ -14,6 +16,86 @@ const RectangleDrawer = () => {
     const [isResizing, setIsResizing] = useState(false);
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [resizeHandle, setResizeHandle] = useState(null);
+    const [error, setError] = useState('');
+    const [pendingApiCall, setPendingApiCall] = useState(false);
+    const lastSentRect = useRef(null);
+    const pendingUpdateTimeout = useRef(null);
+
+    useEffect(() => {
+        const fetchSizeLocation = async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/size-location`);
+                if (!response.ok) throw new Error('Failed to fetch initial size');
+                const data = await response.json();
+                setRect(data);
+                lastSentRect.current = data;
+                setError('');
+            } catch (err) {
+                setError('Failed to load initial size');
+            }
+        };
+        fetchSizeLocation();
+    }, []);
+
+    const sanitizeRect = (rect) => {
+        return {
+            x: Math.max(0, Math.round(rect.x)),
+            y: Math.max(0, Math.round(rect.y)),
+            width: Math.max(10, Math.round(rect.width)),
+            height: Math.max(10, Math.round(rect.height))
+        };
+    };
+
+    const updateSizeLocation = useCallback(async (newRect) => {
+        if (pendingApiCall) {
+            if (pendingUpdateTimeout.current) {
+                clearTimeout(pendingUpdateTimeout.current);
+            }
+            pendingUpdateTimeout.current = setTimeout(() => {
+                updateSizeLocation(newRect);
+            }, 500);
+            return;
+        }
+
+        const sanitizedRect = sanitizeRect(newRect);
+
+        if (lastSentRect.current &&
+            lastSentRect.current.x === sanitizedRect.x &&
+            lastSentRect.current.y === sanitizedRect.y &&
+            lastSentRect.current.width === sanitizedRect.width &&
+            lastSentRect.current.height === sanitizedRect.height) {
+            return;
+        }
+
+        setPendingApiCall(true);
+        try {
+            const response = await fetch(`${API_BASE_URL}/size-location`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(sanitizedRect),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.title || 'Failed to update rectangle');
+            }
+            setError('');
+            lastSentRect.current = sanitizedRect;
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setPendingApiCall(false);
+            if (pendingUpdateTimeout.current) {
+                clearTimeout(pendingUpdateTimeout.current);
+                pendingUpdateTimeout.current = null;
+                if (rect !== lastSentRect.current) {
+                    updateSizeLocation(rect);
+                }
+            }
+        }
+    }, [pendingApiCall, rect]);
 
     const handleMouseDown = (e, handle = null) => {
         const svg = e.target.closest('svg');
@@ -63,36 +145,36 @@ const RectangleDrawer = () => {
                     break;
                 case 'sw': {
                     const newWidth = Math.max(minSize, (rect.x + rect.width) - svgP.x);
-                    newRect.x = Math.min(svgP.x, rect.x + rect.width - minSize);
+                    newRect.x = Math.max(0, Math.min(svgP.x, rect.x + rect.width - minSize));
                     newRect.width = newWidth;
                     newRect.height = Math.max(minSize, svgP.y - rect.y);
                     break;
                 }
                 case 'w': {
                     const newWidth = Math.max(minSize, (rect.x + rect.width) - svgP.x);
-                    newRect.x = Math.min(svgP.x, rect.x + rect.width - minSize);
+                    newRect.x = Math.max(0, Math.min(svgP.x, rect.x + rect.width - minSize));
                     newRect.width = newWidth;
                     break;
                 }
                 case 'nw': {
                     const newWidth = Math.max(minSize, (rect.x + rect.width) - svgP.x);
                     const newHeight = Math.max(minSize, (rect.y + rect.height) - svgP.y);
-                    newRect.x = Math.min(svgP.x, rect.x + rect.width - minSize);
-                    newRect.y = Math.min(svgP.y, rect.y + rect.height - minSize);
+                    newRect.x = Math.max(0, Math.min(svgP.x, rect.x + rect.width - minSize));
+                    newRect.y = Math.max(0, Math.min(svgP.y, rect.y + rect.height - minSize));
                     newRect.width = newWidth;
                     newRect.height = newHeight;
                     break;
                 }
                 case 'n': {
                     const newHeight = Math.max(minSize, (rect.y + rect.height) - svgP.y);
-                    newRect.y = Math.min(svgP.y, rect.y + rect.height - minSize);
+                    newRect.y = Math.max(0, Math.min(svgP.y, rect.y + rect.height - minSize));
                     newRect.height = newHeight;
                     break;
                 }
                 case 'ne': {
                     newRect.width = Math.max(minSize, svgP.x - rect.x);
                     const newHeight = Math.max(minSize, (rect.y + rect.height) - svgP.y);
-                    newRect.y = Math.min(svgP.y, rect.y + rect.height - minSize);
+                    newRect.y = Math.max(0, Math.min(svgP.y, rect.y + rect.height - minSize));
                     newRect.height = newHeight;
                     break;
                 }
@@ -102,13 +184,16 @@ const RectangleDrawer = () => {
         } else if (isDragging) {
             setRect(prev => ({
                 ...prev,
-                x: svgP.x - dragStart.x,
-                y: svgP.y - dragStart.y
+                x: Math.max(0, svgP.x - dragStart.x),
+                y: Math.max(0, svgP.y - dragStart.y)
             }));
         }
     };
 
     const handleMouseUp = () => {
+        if (isDragging || isResizing) {
+            updateSizeLocation(rect);
+        }
         setIsDragging(false);
         setIsResizing(false);
         setResizeHandle(null);
@@ -174,25 +259,7 @@ const RectangleDrawer = () => {
 
     return (
         <div className="rectangle-drawer">
-            <h2>Rectangle Drawing Tool</h2>
-            <div className="controls">
-                <div className="input-group">
-                    <label>Width:</label>
-                    <input
-                        type="number"
-                        value={Math.round(rect.width)}
-                        onChange={(e) => setRect(prev => ({ ...prev, width: parseInt(e.target.value) || 0 }))}
-                    />
-                </div>
-                <div className="input-group">
-                    <label>Height:</label>
-                    <input
-                        type="number"
-                        value={Math.round(rect.height)}
-                        onChange={(e) => setRect(prev => ({ ...prev, height: parseInt(e.target.value) || 0 }))}
-                    />
-                </div>
-            </div>
+            <h2>Rectangle Drawing {pendingApiCall && '(Saving...)'}</h2>
 
             <svg
                 viewBox="0 0 800 600"
@@ -208,7 +275,7 @@ const RectangleDrawer = () => {
                     width={rect.width}
                     height={rect.height}
                     fill="none"
-                    stroke="blue"
+                    stroke={error ? "red" : "blue"}
                     strokeWidth="2"
                     style={{ cursor: 'move' }}
                 />
@@ -233,7 +300,13 @@ const RectangleDrawer = () => {
 
             <div className="position">
                 Position: ({Math.round(rect.x)}, {Math.round(rect.y)})
+                {pendingApiCall && <span className="saving-indicator"> (Saving...)</span>}
             </div>
+            {error && (
+                <div className="error-message">
+                    Error: {error}
+                </div>
+            )}
         </div>
     );
 };

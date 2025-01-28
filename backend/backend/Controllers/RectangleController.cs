@@ -26,9 +26,10 @@ namespace backend.Controllers
         public IActionResult SetSizeLocation([FromBody] SizeLocation sizeLocation)
         {
             var result = _jsonService.SetSizeLocation(sizeLocation);
+            Thread.Sleep(10000);
             if (!result.Success)
             {
-                return BadRequest(result.Error);
+                return BadRequest(new { error = result.Error });
             }
             return Ok();
         }
